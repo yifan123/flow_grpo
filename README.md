@@ -11,7 +11,7 @@
 
 **2025-08-14**
 
-* Adding support for **Wan2.1**. training command
+* Adding support for **Wan2.1**. Training command
 ```bash
 accelerate launch --config_file scripts/accelerate_configs/multi_gpu.yaml --num_processes=1 --main_process_port 29503 scripts/train_wan2_1.py --config config/grpo.py:general_ocr_wan2_1
 ```
