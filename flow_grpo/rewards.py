@@ -140,6 +140,23 @@ def ocr_score(device):
 
     return _fn
 
+def video_ocr_score(device):
+    from flow_grpo.ocr import OcrScorer_video_or_image
+
+    scorer = OcrScorer_video_or_image()
+
+    def _fn(images, prompts, metadata):
+        if isinstance(images, torch.Tensor):
+            if images.dim() == 4 and images.shape[1] == 3:
+                images = images.permute(0, 2, 3, 1) 
+            elif images.dim() == 5 and images.shape[2] == 3:
+                images = images.permute(0, 1, 3, 4, 2)
+            images = (images * 255).round().clamp(0, 255).to(torch.uint8).cpu().numpy()
+        scores = scorer(images, prompts)
+        # change tensor to list
+        return scores, {}
+
+    return _fn
 
 def deqa_score_remote(device):
     """Submits images to DeQA and computes a reward.
@@ -394,6 +411,7 @@ def multi_score(device, score_dict):
     score_functions = {
         "deqa": deqa_score_remote,
         "ocr": ocr_score,
+        "video_ocr": video_ocr_score,
         "imagereward": imagereward_score,
         "pickscore": pickscore_score,
         "qwenvl": qwenvl_score,

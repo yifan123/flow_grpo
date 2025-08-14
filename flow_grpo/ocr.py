@@ -2,7 +2,7 @@ from paddleocr import PaddleOCR
 import torch
 import numpy as np
 from Levenshtein import distance
-from typing import List, Union
+from typing import List, Union, Tuple
 from PIL import Image
 
 class OcrScorer:
@@ -59,6 +59,68 @@ class OcrScorer:
                 dist = len(prompt)  # Maximum penalty
             reward = 1-dist/(len(prompt))
             rewards.append(reward)
+
+        return rewards
+
+class OcrScorer_video_or_image:
+    def __init__(self, use_gpu: bool = False):
+        """
+        OCR reward calculator
+        :param use_gpu: Whether to use GPU acceleration for PaddleOCR
+        """
+        self.ocr = PaddleOCR(
+            use_angle_cls=False,
+            lang="en",
+            use_gpu=use_gpu,
+            show_log=False  # Disable unnecessary log output
+        )
+        self.frame_interval = 4
+
+    @torch.no_grad()
+    def __call__(self, images: Union[List[Image.Image], List[np.ndarray]], prompts: List[str]) -> Tuple[List[float], torch.Tensor]:
+        """
+        :param images: List of images or videos (each video as np.ndarray of shape [F, H, W, C])
+        :param prompts: List of prompts containing target text
+        :return: (List of OCR rewards, Tensor of attention regions)
+        """
+        prompts = [prompt.split('"')[1] for prompt in prompts]
+        assert len(images) == len(prompts), "Mismatch between images and prompts."
+
+        rewards = []
+        for img, prompt in zip(images, prompts):
+            prompt = prompt.replace(' ', '').lower()
+            frame_rewards = []
+
+            # Handle video: shape (F, H, W, C)
+            if isinstance(img, np.ndarray) and img.ndim == 4:
+                sampled_frames = img[::self.frame_interval]
+            else:
+                sampled_frames = [img]
+
+            for frame in sampled_frames:
+                region = None
+                if isinstance(frame, Image.Image):
+                    frame = np.array(frame)
+                try:
+                    result = self.ocr.ocr(frame, cls=False)
+                    text = ''.join([res[1][0] if res[1][1] > 0 else '' for res in result[0]]) if result[0] else ''
+                    text = text.replace(' ', '').lower()
+
+                    dist = distance(text, prompt)
+                    dist = min(dist, len(prompt))
+    
+                except Exception as e:
+                    print(f"OCR failed on frame: {e}")
+                    dist = len(prompt)
+
+                reward = 1 - dist / len(prompt)
+                if reward > 0:
+                    frame_rewards.append(reward)
+
+            if frame_rewards:
+                rewards.append(sum(frame_rewards) / len(frame_rewards))
+            else:
+                rewards.append(0.0)
 
         return rewards
 

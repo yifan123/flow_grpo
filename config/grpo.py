@@ -26,6 +26,60 @@ def compressibility():
     config.per_prompt_stat_tracking = True
     return config
 
+def general_ocr_wan2_1():
+    config = compressibility()
+    config.dataset = os.path.join(os.getcwd(), "dataset/ocr")
+
+    # config.pretrained.model = "hf_cache/Wan2.1-T2V-14B-Diffusers"
+    config.pretrained.model = "hf_cache/Wan2.1-T2V-1.3B-Diffusers"
+    config.sample.num_steps = 20
+    config.sample.eval_num_steps = 50
+    config.sample.guidance_scale=4.5
+    config.run_name = "wan_flow_grpo"
+    
+    config.height = 240
+    config.width = 416
+    config.frames = 33
+    config.sample.train_batch_size = 8
+    config.sample.num_image_per_prompt = 4 # 12
+    config.sample.num_batches_per_epoch = 2
+    config.sample.sample_time_per_prompt = 1
+    config.sample.test_batch_size = 2
+
+    config.train.batch_size = config.sample.train_batch_size
+    config.train.gradient_accumulation_steps = config.sample.num_batches_per_epoch * config.sample.sample_time_per_prompt // 2 if (config.sample.num_batches_per_epoch * config.sample.sample_time_per_prompt) > 1 else 1
+    config.train.num_inner_epochs = 1
+    config.train.timestep_fraction = 0.99
+    # kl loss
+    config.train.beta = 0.004
+    config.train.learning_rate = 1e-4
+    config.train.clip_range=1e-3
+    # kl reward
+    # KL reward and KL loss are two ways to incorporate KL divergence. KL reward adds KL to the reward, while KL loss, introduced by GRPO, directly adds KL loss to the policy loss. We support both methods, but KL loss is recommended as the preferred option.
+    config.sample.kl_reward = 0
+    # We also support using SFT data in RL training for supervised learning to prevent quality drop, but this option was unused
+    config.train.sft=0.0
+    config.train.sft_batch_size=3
+    # Whether to use the std of all samples or the current group's.
+    config.sample.global_std=False
+    config.train.ema=True
+    config.mixed_precision = "bf16"
+    config.diffusion_loss = True
+    # A large num_epochs is intentionally set here. Training will be manually stopped once sufficient
+    config.num_epochs = 100000
+    config.save_freq = 60 # epoch
+    config.eval_freq = 30
+    config.save_dir = f'logs/video_ocr/{config.run_name}'
+    config.resume_from = None
+    config.reward_fn = {
+        "video_ocr": 1.0,
+    }
+    
+    config.prompt_fn = "general_ocr"
+
+    config.per_prompt_stat_tracking = True
+    return config
+
 def general_ocr_sd3():
     gpu_number = 32
     config = compressibility()
