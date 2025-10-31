@@ -863,10 +863,10 @@ def counting_qwenimage_edit_fast():
     config.per_prompt_stat_tracking = True
     return config
 
-def repairany_qwenimage_edit_plus_fast():
+def dual_ref_qwenimage_edit_plus_fast():
     gpu_number=2
     config = compressibility()
-    config.dataset = os.path.join(os.getcwd(), "dataset/repairany")
+    config.dataset = os.path.join(os.getcwd(), "dataset/dual_ref")
 
     # flux
     config.pretrained.model = "Qwen/Qwen-Image-Edit-2509"
@@ -897,7 +897,7 @@ def repairany_qwenimage_edit_plus_fast():
     config.fsdp_optimizer_offload = True
     config.save_freq = 60 # epoch
     config.eval_freq = 30
-    config.save_dir = 'logs/pickscore/qwenimage_edit'
+    config.save_dir = 'logs/dual_ref/qwenimage_edit_plus'
     config.reward_fn = {
         "image_similarity": 0.2,
         "geneval": 0.8,
