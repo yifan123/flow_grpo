@@ -18,6 +18,10 @@
 <details>
 <summary><strong>Update History</strong></summary>
 
+**2025-10-31**
+
+* Adding support for **Qwen-Image-Edit-Plus**.
+
 **2025-08-15**
 
 * Adding support for **Qwen-Image** and **Qwen-Image-Edit**.
@@ -177,6 +181,8 @@ pip install git+https://github.com/openai/CLIP.git
 bash scripts/single_node/grpo.sh
 # flux
 bash scripts/single_node/grpo_flux.sh
+# qwen-image-edit-plus
+bash scripts/single_node/grpo_qwenimage_edit_plus.sh
 ```
 - Multi-node training for SD3:
 ```bash
