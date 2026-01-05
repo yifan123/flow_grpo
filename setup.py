@@ -49,6 +49,8 @@ setup(
         "ml_collections",
         "sentencepiece",
         "openai",
+        "hpsv2x==1.2.0",
+        "timm==1.0.20"
     ],
     extras_require={
         "dev": [

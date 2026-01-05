@@ -124,7 +124,23 @@ def qwenvl_score(device):
 
     return _fn
 
+
+
+def hpsv2_score(device):
+    from flow_grpo.hpsv2_scorer import HPSv2RewardInferencer
     
+    scorer = HPSv2RewardInferencer(device=device, hps_version='v2.1')
+    
+    def _fn(images, prompts, metadata):
+        if isinstance(images, torch.Tensor):
+            images = (images * 255).round().clamp(0, 255).to(torch.uint8).cpu().numpy()
+            images = images.transpose(0, 2, 3, 1)  # NCHW -> NHWC
+            images = [Image.fromarray(image) for image in images]
+        prompts = [prompt for prompt in prompts]
+        scores = scorer.reward(images, prompts)
+        return scores, {}
+    
+    return _fn
 def ocr_score(device):
     from flow_grpo.ocr import OcrScorer
 
@@ -412,6 +428,7 @@ def multi_score(device, score_dict):
         "deqa": deqa_score_remote,
         "ocr": ocr_score,
         "video_ocr": video_ocr_score,
+        "hpsv2_score": hpsv2_score,
         "imagereward": imagereward_score,
         "pickscore": pickscore_score,
         "qwenvl": qwenvl_score,

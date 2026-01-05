@@ -9,7 +9,11 @@
 
 ## Changelog
 <details open>
+<summary><strong>2026-01-05</strong></summary>
 
+* Adding **GARDO** 🔥🔥.
+</details>
+<details open>
 <summary><strong>2025-11-04</strong></summary>
 
 * Adding **GRPO-Guard** 🔥🔥.
@@ -85,6 +89,33 @@ The figure below shows the test-set performance curves using GenEval and PickSco
   <img src="flow_grpo/assets/flow_grpo_fast_nocfg_geneval.svg" alt="Flow-GRPO-Fast Illustration" width="350"/>
   <img src="flow_grpo/assets/flow_grpo_fast_nocfg_pickscore.svg" alt="Flow-GRPO-Fast Illustration" width="350"/> 
 </p>
+
+## :rocket: GARDO: Addressing reward hacking
+
+Fine-tuning diffusion models via online reinforcement learning (RL) suffers from reward hacking. To address the competing demands of *sample efficiency*, *effective exploration*, and *mitigation of reward hacking*, we propose **G**ated and **A**daptive **R**egularization with **D**iversity-aware **O**ptimization [(GARDO)](https://tinnerhrhe.github.io/gardo_project/). 
+
+- Our key insight is that regularization need not be applied universally; instead, it is highly effective to <font color="Blue">selectively penalize</font> a subset of samples that exhibit high uncertainty. 
+- To address the exploration challenge, GARDO introduces an adaptive regularization mechanism wherein the reference model is periodically updated to match the capabilities of the online policy, ensuring <font color="Blue">a relevant regularization target</font>. 
+- To address the mode collapse issue in RL, GARDO amplifies the rewards for high-quality samples that also exhibit high diversity, encouraging <font color="Blue">mode coverage</font> without destabilizing the optimization process.
+<div align="center">
+    <img src="flow_grpo/assets/GARDO/overview_method.png" alt="Annotation process using MiniCPM-V" width="95%"/>
+</div>
+
+GARDO relieves reward hacking without sacrificing sample efficiency and exploration.
+
+<div align="center">
+    <img src="flow_grpo/assets/GARDO/result.png" alt="Annotation process using MiniCPM-V" width="99%"/>
+</div>
+
+&#128073; To run GARDO, please download the [dinov3](https://github.com/facebookresearch/dinov3) model and set the path in the codes:
+```
+huggingface-cli download timm/vit_large_patch16_dinov3.lvd1689m --local-dir <your path>
+```
+
+Then run the following script to start training.
+```
+bash scripts/single_node/grpo_gardo_sd3.sh 
+```
 
 ## 🛡️ Over-optimization (GRPO-Guard) 🔥🔥
 
@@ -457,6 +488,17 @@ If you find Flow-GRPO useful for your research or projects, we would greatly app
   author={Liu, Jie and Liu, Gongye and Liang, Jiajun and Li, Yangguang and Liu, Jiaheng and Wang, Xintao and Wan, Pengfei and Zhang, Di and Ouyang, Wanli},
   journal={arXiv preprint arXiv:2505.05470},
   year={2025}
+}
+```
+If you find GARDO useful for your research or projects, we would greatly appreciate it if you could cite the following paper:
+```
+@misc{he2025gardo,
+    title={GARDO: Reinforcing Diffusion Models without Reward Hacking},
+    author={Haoran He and Yuxiao Ye and Jie Liu and Jiajun Liang and Zhiyong Wang and Ziyang Yuan and Xintao Wang and Hangyu Mao and Pengfei Wan and Ling Pan},
+    year={2025},
+    eprint={2512.24138},
+    archivePrefix={arXiv},
+    primaryClass={cs.LG}
 }
 ```
 If you find GRPO-Guard useful for your research or projects, we would greatly appreciate it if you could cite the following paper:

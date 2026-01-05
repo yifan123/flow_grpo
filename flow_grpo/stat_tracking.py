@@ -8,11 +8,14 @@ class PerPromptStatTracker:
         self.stats = {}
         self.history_prompts = set()
 
-    def update(self, prompts, rewards, type='grpo'):
+    def update(self, prompts, rewards, dists=None, type='grpo'):
         prompts = np.array(prompts)
         rewards = np.array(rewards, dtype=np.float64)
         unique = np.unique(prompts)
         advantages = np.empty_like(rewards)*0.0
+        if dists is not None and type=='gardo':
+            dists = np.array(dists)
+            dists = dists / np.linalg.norm(dists, ord=2, axis=1, keepdims=True)
         for prompt in unique:
             prompt_rewards = rewards[prompts == prompt]
             if prompt not in self.stats:
@@ -23,12 +26,28 @@ class PerPromptStatTracker:
             self.stats[prompt] = np.stack(self.stats[prompt])
             prompt_rewards = rewards[prompts == prompt]  # Fix: Recalculate prompt_rewards for each prompt
             mean = np.mean(self.stats[prompt], axis=0, keepdims=True)
+            if dists is not None and type=='gardo':
+                prompt_dists = dists[prompts == prompt]
+            
+                similarity_matrix = np.dot(prompt_dists, prompt_dists.T).clip(-1,1)
+                distance_matrix = 1 - similarity_matrix
+                avg_distances = np.zeros(len(distance_matrix))
+                for i in range(len(distance_matrix)):
+                    mask = np.ones(len(distance_matrix), dtype=bool)
+                    mask[i] = False
+                    other_distances = distance_matrix[i, mask]
+                    avg_distances[i] = np.min(other_distances)
+                prompt_dists = avg_distances
+                prompt_dists = np.repeat(prompt_dists[:, np.newaxis],prompt_rewards.shape[-1], axis=1)
+                prompt_dists = np.where((prompt_rewards - mean)<0,np.ones_like(prompt_dists),prompt_dists/np.mean(prompt_dists))
             if self.global_std:
                 std = np.std(rewards, axis=0, keepdims=True) + 1e-4  # Use global std of all rewards
             else:
                 std = np.std(self.stats[prompt], axis=0, keepdims=True) + 1e-4
             if type=='grpo':
                 advantages[prompts == prompt] = (prompt_rewards - mean) / std
+            elif type=='gardo':
+                advantages[prompts == prompt] = (prompt_rewards - mean) * (prompt_dists)
             elif type=='rwr':
                 # advantages[prompts == prompt] = (prompt_rewards - mean) / std
                 advantages[prompts == prompt] = prompt_rewards
@@ -51,7 +70,7 @@ class PerPromptStatTracker:
                 result[min_idx] = -1.0
                 advantages[prompts == prompt] = result.numpy()
                 # print("reward difference one group", prompt_advantages[max_idx]-prompt_advantages[min_idx])
-            
+        
         return advantages
 
     def get_stats(self):
