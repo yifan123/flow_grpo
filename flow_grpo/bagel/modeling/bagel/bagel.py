@@ -872,105 +872,105 @@ class Bagel(PreTrainedModel):
                     cfg_img_packed_key_value_indexes=cfg_img_packed_key_value_indexes,
                     cfg_type=cfg_type,
                 )
-            t_index = (original_timesteps == timesteps[i]).nonzero(as_tuple=True)[0]
-            _, log_prob, prev_sample_mean, std_dev_t = self._sde_step_with_logprob(
-                v_t, 
-                timesteps[i], 
-                timesteps[i+1] if i+1 < len(timesteps) else timesteps[i]*0, # 最后一个step, timestep是0
-                dtimesteps[t_index], 
-                latents[i], 
-                prev_sample=prev_latents[i], 
-                sigma_max=original_timesteps[1], 
-                noise_level=noise_level
-            )
-            if grpo_config.train.beta > 0:
-                with torch.no_grad():
-                    v_t = self._forward_flow(
-                        x_t=latents[i],
-                        timestep=timestep, 
-                        packed_vae_token_indexes=packed_vae_token_indexes,
-                        packed_vae_position_ids=packed_vae_position_ids,
-                        packed_text_ids=packed_text_ids,
-                        packed_text_indexes=packed_text_indexes,
-                        packed_position_ids=packed_position_ids,
-                        packed_indexes=packed_indexes,
-                        packed_seqlens=packed_seqlens,
-                        key_values_lens=key_values_lens,
-                        past_key_values=past_key_values,
-                        packed_key_value_indexes=packed_key_value_indexes,
-                        cfg_renorm_min=cfg_renorm_min,
-                        cfg_renorm_type=cfg_renorm_type,
-                        # cfg_text
-                        cfg_text_scale=cfg_text_scale_,
-                        cfg_text_packed_position_ids=cfg_text_packed_position_ids,
-                        cfg_text_packed_query_indexes=cfg_text_packed_query_indexes,
-                        cfg_text_key_values_lens=cfg_text_key_values_lens,
-                        cfg_text_past_key_values=cfg_text_past_key_values,
-                        cfg_text_packed_key_value_indexes=cfg_text_packed_key_value_indexes,
-                        # cfg_img
-                        cfg_img_scale=cfg_img_scale_,
-                        cfg_img_packed_position_ids=cfg_img_packed_position_ids,
-                        cfg_img_packed_query_indexes=cfg_img_packed_query_indexes,
-                        cfg_img_key_values_lens=cfg_img_key_values_lens,
-                        cfg_img_past_key_values=cfg_img_past_key_values,
-                        cfg_img_packed_key_value_indexes=cfg_img_packed_key_value_indexes,
-                        cfg_type=cfg_type,
-                        ref_model=True,
-                    )
-                    _, _, prev_sample_mean_ref, _ = self._sde_step_with_logprob(
-                        v_t, 
-                        timesteps[i], 
-                        timesteps[i+1] if i+1 < len(timesteps) else timesteps[i]*0, # 最后一个step, timestep是0
-                        dtimesteps[t_index], 
-                        latents[i], 
-                        prev_sample=prev_latents[i], 
-                        sigma_max=original_timesteps[1], 
-                        noise_level=noise_level
-                    )
+                t_index = (original_timesteps == timesteps[i]).nonzero(as_tuple=True)[0]
+                _, log_prob, prev_sample_mean, std_dev_t = self._sde_step_with_logprob(
+                    v_t, 
+                    timesteps[i], 
+                    timesteps[i+1] if i+1 < len(timesteps) else timesteps[i]*0, # 最后一个step, timestep是0
+                    dtimesteps[t_index], 
+                    latents[i], 
+                    prev_sample=prev_latents[i], 
+                    sigma_max=original_timesteps[1], 
+                    noise_level=noise_level
+                )
+                if grpo_config.train.beta > 0:
+                    with torch.no_grad():
+                        v_t = self._forward_flow(
+                            x_t=latents[i],
+                            timestep=timestep, 
+                            packed_vae_token_indexes=packed_vae_token_indexes,
+                            packed_vae_position_ids=packed_vae_position_ids,
+                            packed_text_ids=packed_text_ids,
+                            packed_text_indexes=packed_text_indexes,
+                            packed_position_ids=packed_position_ids,
+                            packed_indexes=packed_indexes,
+                            packed_seqlens=packed_seqlens,
+                            key_values_lens=key_values_lens,
+                            past_key_values=past_key_values,
+                            packed_key_value_indexes=packed_key_value_indexes,
+                            cfg_renorm_min=cfg_renorm_min,
+                            cfg_renorm_type=cfg_renorm_type,
+                            # cfg_text
+                            cfg_text_scale=cfg_text_scale_,
+                            cfg_text_packed_position_ids=cfg_text_packed_position_ids,
+                            cfg_text_packed_query_indexes=cfg_text_packed_query_indexes,
+                            cfg_text_key_values_lens=cfg_text_key_values_lens,
+                            cfg_text_past_key_values=cfg_text_past_key_values,
+                            cfg_text_packed_key_value_indexes=cfg_text_packed_key_value_indexes,
+                            # cfg_img
+                            cfg_img_scale=cfg_img_scale_,
+                            cfg_img_packed_position_ids=cfg_img_packed_position_ids,
+                            cfg_img_packed_query_indexes=cfg_img_packed_query_indexes,
+                            cfg_img_key_values_lens=cfg_img_key_values_lens,
+                            cfg_img_past_key_values=cfg_img_past_key_values,
+                            cfg_img_packed_key_value_indexes=cfg_img_packed_key_value_indexes,
+                            cfg_type=cfg_type,
+                            ref_model=True,
+                        )
+                        _, _, prev_sample_mean_ref, _ = self._sde_step_with_logprob(
+                            v_t, 
+                            timesteps[i], 
+                            timesteps[i+1] if i+1 < len(timesteps) else timesteps[i]*0, # 最后一个step, timestep是0
+                            dtimesteps[t_index], 
+                            latents[i], 
+                            prev_sample=prev_latents[i], 
+                            sigma_max=original_timesteps[1], 
+                            noise_level=noise_level
+                        )
             
-            # grpo logic
-            ratio = torch.exp(log_prob - sample["log_probs"][i])
-            # print('ratio', ratio)
-            unclipped_loss = -advantages * ratio
-            clipped_loss = -advantages * torch.clamp(
-                ratio,
-                1.0 - grpo_config.train.clip_range_lt,
-                1.0 + grpo_config.train.clip_range_gt,
-            )
-            policy_loss = torch.mean(torch.maximum(unclipped_loss, clipped_loss))
-            if grpo_config.train.beta > 0:
-                kl_loss = ((prev_sample_mean - prev_sample_mean_ref) ** 2).mean() / (2 * std_dev_t ** 2)
-                loss = policy_loss + grpo_config.train.beta * kl_loss
-            else:
-                loss = policy_loss
-            clipfrac.append(
-                torch.mean(
-                    (
-                        ratio - 1.0 > grpo_config.train.clip_range_gt or 1.0 - ratio > grpo_config.train.clip_range_lt
-                    ).float()
+                # grpo logic
+                ratio = torch.exp(log_prob - sample["log_probs"][i])
+                # print('ratio', ratio)
+                unclipped_loss = -advantages * ratio
+                clipped_loss = -advantages * torch.clamp(
+                    ratio,
+                    1.0 - grpo_config.train.clip_range_lt,
+                    1.0 + grpo_config.train.clip_range_gt,
                 )
-            )
-            clipfrac_gt_one.append(
-                torch.mean(
-                    (
-                        ratio - 1.0 > grpo_config.train.clip_range_gt
-                    ).float()
+                policy_loss = torch.mean(torch.maximum(unclipped_loss, clipped_loss))
+                if grpo_config.train.beta > 0:
+                    kl_loss = ((prev_sample_mean - prev_sample_mean_ref) ** 2).mean() / (2 * std_dev_t ** 2)
+                    loss = policy_loss + grpo_config.train.beta * kl_loss
+                else:
+                    loss = policy_loss
+                clipfrac.append(
+                    torch.mean(
+                        (
+                            ratio - 1.0 > grpo_config.train.clip_range_gt or 1.0 - ratio > grpo_config.train.clip_range_lt
+                        ).float()
+                    )
                 )
-            )
-            clipfrac_lt_one.append(
-                torch.mean(
-                    (
-                        1.0 - ratio > grpo_config.train.clip_range_lt
-                    ).float()
+                clipfrac_gt_one.append(
+                    torch.mean(
+                        (
+                            ratio - 1.0 > grpo_config.train.clip_range_gt
+                        ).float()
+                    )
                 )
-            )
-            policy_loss_list.append(policy_loss)
-            if grpo_config.train.beta > 0:
-                kl_loss_list.append(kl_loss)
-            loss_list.append(loss)
-            accelerator.backward(loss)
-            optimizer.step()
-            optimizer.zero_grad()
+                clipfrac_lt_one.append(
+                    torch.mean(
+                        (
+                            1.0 - ratio > grpo_config.train.clip_range_lt
+                        ).float()
+                    )
+                )
+                policy_loss_list.append(policy_loss)
+                if grpo_config.train.beta > 0:
+                    kl_loss_list.append(kl_loss)
+                loss_list.append(loss)
+                accelerator.backward(loss)
+                optimizer.step()
+                optimizer.zero_grad()
         policy_loss = torch.cat([t.unsqueeze(0) for t in policy_loss_list]).mean().detach()
         loss = torch.cat([t.unsqueeze(0) for t in loss_list]).mean().detach()
         clipfrac = torch.cat([t.unsqueeze(0) for t in clipfrac]).mean().detach()
