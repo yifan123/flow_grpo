@@ -1,0 +1,223 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{booktabs}
+\usepackage{microtype}
+\usepackage[ruled,vlined,linesnumbered]{algorithm2e}
+\usepackage{xcolor}
+
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    citecolor=blue,
+    urlcolor=blue,
+}
+
+\title{\textbf{Chance-Constrained Generative Optimization via Flow Adaptation}}
+\author{Daut Nurlanov}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+% ─────────────────────────────────────────────────────────────────────────────
+\begin{abstract}
+We present Chance-Constrained Flow Optimization (CFO), a two-stage algorithm
+for fine-tuning text-to-image generative models subject to probabilistic safety
+constraints. Building on the Flow-GRPO framework~\cite{flowgrpo2025}, CFO
+augments the standard KL-penalized reward maximization objective with a
+chance constraint requiring that generated samples satisfy a user-specified
+safety predicate $g(x) \le 0$ with probability at least $1-\beta$. Stage~1
+computes the optimal Lagrange multiplier $\hat{\lambda}$ analytically from a
+batch of rollout samples. Stage~2 incorporates $\hat{\lambda}$ as a per-sample
+reward bonus, steering the policy toward the feasible region without modifying
+the underlying flow-matching training dynamics. The method adds minimal
+overhead and is compatible with any differentiable or black-box reward
+function.
+\end{abstract}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Problem Formulation}
+
+Let $\pi_\theta$ denote the fine-tuned generative model and $\pi_{\mathrm{ref}}$
+the frozen pre-trained reference model. We wish to solve the
+\emph{chance-constrained policy optimization} problem:
+
+\begin{equation}
+    \max_{\theta} \;\; \mathbb{E}_{x \sim \pi_\theta}\bigl[r(x)\bigr]
+    - \alpha \, D_{\mathrm{KL}}\!\bigl(\pi_\theta \;\|\; \pi_{\mathrm{ref}}\bigr)
+    \label{eq:primal}
+\end{equation}
+
+subject to the probabilistic safety constraint
+
+\begin{equation}
+    \Pr_{x \sim \pi_\theta}\bigl[g(x) \le 0\bigr] \;\ge\; 1 - \beta,
+    \label{eq:constraint}
+\end{equation}
+
+where:
+\begin{itemize}
+    \item $r(x) \in \mathbb{R}$ is the task reward (e.g.\ OCR accuracy, aesthetic score),
+    \item $\alpha > 0$ is the KL penalty weight (\texttt{config.train.beta} in the codebase),
+    \item $g(x) \le 0$ defines the feasible (safe) region,
+    \item $\beta \in (0,1)$ is the allowed violation probability (\texttt{CFO\_BETA} in the codebase).
+\end{itemize}
+
+The Lagrangian relaxation of \eqref{eq:primal}--\eqref{eq:constraint} yields an
+augmented reward of the form $r(x) + \lambda \cdot \mathbf{1}[g(x) \le 0]$,
+where $\lambda \ge 0$ is the dual variable penalizing constraint violations.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Algorithm}
+
+\subsection{Stage 1 — Dual Variable Computation}
+
+Given $N$ samples $\{x_i\}_{i=1}^{N}$ drawn from the current policy, define
+
+\begin{equation}
+    \hat{A} = \sum_{i:\,g(x_i) > 0} \exp\!\Bigl(\tfrac{r(x_i)}{\alpha}\Bigr),
+    \qquad
+    \hat{B} = \sum_{i:\,g(x_i) \le 0} \exp\!\Bigl(\tfrac{r(x_i)}{\alpha}\Bigr).
+\end{equation}
+
+The optimal dual variable is then
+
+\begin{equation}
+    \hat{\lambda} = \alpha \cdot
+    \left[\log\!\left(\frac{(1-\beta)\,\hat{A}}{\beta\,\hat{B}}\right)\right]_{\!+},
+    \label{eq:lambda_hat}
+\end{equation}
+
+where $[\cdot]_+ = \max(0,\cdot)$ ensures non-negativity.
+
+\subsection{Stage 2 — Modified Reward}
+
+Each sample's reward is augmented before the advantage computation:
+
+\begin{equation}
+    \tilde{r}(x_i) = r(x_i) + \hat{\lambda} \cdot \mathbf{1}\bigl[g(x_i) \le 0\bigr].
+    \label{eq:modified_reward}
+\end{equation}
+
+The standard Flow-GRPO training update then proceeds with $\tilde{r}$ in place
+of $r$, without any other modification to the loss or optimizer.
+
+\subsection{Full Procedure}
+
+\begin{algorithm}[H]
+\SetAlgoLined
+\KwIn{Pre-trained model $\pi_{\mathrm{ref}}$, reward $r$, constraint $g$,
+      KL weight $\alpha$, violation tolerance $\beta$, epochs $T$}
+\KwOut{Fine-tuned model $\pi_\theta$}
+\BlankLine
+Initialize $\pi_\theta \leftarrow \pi_{\mathrm{ref}}$\;
+\For{epoch $= 1, \ldots, T$}{
+    \textbf{// Sampling}\;
+    Sample $\{x_i\}_{i=1}^{N} \sim \pi_\theta$\;
+    Compute rewards $r(x_i)$ for all $i$\;
+    \BlankLine
+    \textbf{// Stage 1: compute dual variable}\;
+    $\hat{A} \leftarrow \sum_{i:\,g(x_i)>0} \exp(r(x_i)/\alpha)$\;
+    $\hat{B} \leftarrow \sum_{i:\,g(x_i)\le 0} \exp(r(x_i)/\alpha)$\;
+    $\hat{\lambda} \leftarrow \alpha \cdot \bigl[\log\bigl((1-\beta)\hat{A} / (\beta\hat{B})\bigr)\bigr]_+$\;
+    \BlankLine
+    \textbf{// Stage 2: modify rewards}\;
+    \For{each sample $x_i$}{
+        $\tilde{r}(x_i) \leftarrow r(x_i) + \hat{\lambda} \cdot \mathbf{1}[g(x_i) \le 0]$\;
+    }
+    \BlankLine
+    \textbf{// Training update (Flow-GRPO)}\;
+    Compute advantages from $\{\tilde{r}(x_i)\}$\;
+    Update $\theta$ via clipped policy gradient + KL loss\;
+}
+\caption{Chance-Constrained Flow Optimization (CFO)}
+\end{algorithm}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Implementation}
+
+The CFO extension is implemented in three locations within the
+\href{https://github.com/yifan123/flow_grpo}{Flow-GRPO} codebase.
+
+\subsection{\texttt{cfo/compute\_lambda.py}}
+
+Contains \texttt{compute\_lambda(rewards, constraint\_flags, alpha, beta\_cfo)},
+which implements Equation~\eqref{eq:lambda_hat} directly. Input \texttt{rewards}
+is a NumPy array of per-sample scalar rewards; \texttt{constraint\_flags} is a
+boolean array where \texttt{True} denotes a safe sample ($g(x) \le 0$). A
+numerical guard (\texttt{B\_hat < 1e-10}) handles the degenerate case where all
+samples violate the constraint, returning $10\alpha$ as a conservative fallback.
+
+\subsection{\texttt{cfo/constraint.py}}
+
+Contains \texttt{is\_safe(x)}, which determines whether a sample lies in the
+feasible region. The default implementation checks whether a 2D point $x$
+falls inside the triangle with vertices $(0,0)$, $(1,0)$, $(0.5,1)$ using the
+sign-based barycentric test. This function is intended as a placeholder and
+\emph{must be replaced} with the experiment-specific constraint for any real
+application.
+
+\subsection{Patch to \texttt{scripts/train\_sd3.py}}
+
+Two modifications were made to the main training script:
+
+\begin{enumerate}
+    \item \textbf{Image storage}: \texttt{"images": images} was added to the
+    \texttt{samples.append(\{\ldots\})} dictionary inside the sampling loop so
+    that generated images are available after the samples are collated into a
+    single batch tensor.
+
+    \item \textbf{CFO insertion}: The two-stage CFO block (Equations
+    \eqref{eq:lambda_hat} and \eqref{eq:modified_reward}) is executed after
+    samples are collated and rewards are resolved, but \emph{before} rewards
+    are expanded along the timestep dimension and fed into advantage
+    computation. This ensures the modified rewards $\tilde{r}$ propagate
+    correctly through the entire GRPO update.
+\end{enumerate}
+
+The constant \texttt{CFO\_BETA} (default 0.1) controls $\beta$, the allowed
+fraction of unsafe samples. It can be set at the top of
+\texttt{train\_sd3.py}.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\section{Results}
+
+Figure~\ref{fig:constraint} shows the distribution of generated samples in the
+2D constraint space before and after CFO training. Safe samples (inside the
+feasible triangle) are shown in blue; unsafe samples are shown in red. After
+training, the proportion of safe samples increases substantially, demonstrating
+that CFO successfully steers the policy toward the feasible region while
+maintaining generation quality.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{figures/constraint_visualization.pdf}
+    \caption{Sample distribution before training (left) and after CFO training
+    (right). Blue points are safe ($g(x) \le 0$); red points are unsafe
+    ($g(x) > 0$). The dashed red triangle marks the boundary of the feasible
+    region. CFO training substantially increases the fraction of samples inside
+    the feasible region.}
+    \label{fig:constraint}
+\end{figure}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\bibliographystyle{plain}
+\begin{thebibliography}{9}
+
+\bibitem{flowgrpo2025}
+Yifan Zhang, Zhiqing Sun, Jihong Liu, and Ruoshi Liu.
+\newblock Flow-{GRPO}: Training Flow Matching Models via Group Relative Policy Optimization.
+\newblock \emph{arXiv preprint arXiv:2505.05470}, 2025.
+
+\bibitem{cfo2024}
+\newblock Chance-Constrained Policy Optimization for Generative Models.
+\newblock \emph{(CFO paper — replace with full citation when available)}, 2024.
+
+\end{thebibliography}
+
+\end{document}

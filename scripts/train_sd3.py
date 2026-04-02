@@ -30,7 +30,9 @@ from peft import LoraConfig, get_peft_model, set_peft_model_state_dict, PeftMode
 import random
 from torch.utils.data import Dataset, DataLoader, Sampler
 from flow_grpo.ema import EMAModuleWrapper
-
+from cfo.compute_lambda import compute_lambda
+from cfo.constraint import is_safe
+CFO_BETA = 0.1 
 tqdm = partial(tqdm.tqdm, dynamic_ncols=True)
 
 
@@ -683,6 +685,7 @@ def main(_):
                     ],  # each entry is the latent after timestep t
                     "log_probs": log_probs,
                     "rewards": rewards,
+                    "images": images,
                 }
             )
 
@@ -740,6 +743,28 @@ def main(_):
                     },
                     step=global_step,
                 )
+        # ── CFO STAGE 1: compute optimal dual variable ────────────────
+        _all_rewards = samples["rewards"]["avg"].cpu().numpy()
+        _all_images  = samples["images"]
+
+        _constraint_flags = [is_safe(img) for img in _all_images]
+
+        lambda_hat = compute_lambda(
+            rewards          = _all_rewards,
+            constraint_flags = _constraint_flags,
+            alpha            = config.train.beta,
+            beta_cfo         = CFO_BETA,
+        )
+
+        print(f"[CFO] lambda_hat = {lambda_hat:.4f} | "
+              f"safe = {sum(_constraint_flags)}/{len(_constraint_flags)} "
+              f"({sum(_constraint_flags)/len(_constraint_flags):.1%})")
+
+        # ── CFO STAGE 2: modify rewards in-place ─────────────────────
+        for i, img in enumerate(samples["images"]):
+            samples["rewards"]["avg"][i] += lambda_hat * float(is_safe(img))
+        # ─────────────────────────────────────────────────────────────
+
         samples["rewards"]["ori_avg"] = samples["rewards"]["avg"]
         # The purpose of repeating `adv` along the timestep dimension here is to make it easier to introduce timestep-dependent advantages later, such as adding a KL reward.
         samples["rewards"]["avg"] = samples["rewards"]["avg"].unsqueeze(1).repeat(1, num_train_timesteps)
