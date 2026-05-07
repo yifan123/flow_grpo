@@ -482,3 +482,46 @@ If you find Flow-DPO useful for your research or projects, we would greatly appr
   year={2025}
 }
 ```
+
+## CFO Extension
+
+**Chance-Constrained Flow Optimization (CFO)** is a two-stage algorithm that fine-tunes a generative model to maximize reward while satisfying a probabilistic safety constraint: generated samples must fall in a user-defined feasible region $g(x) \le 0$ at least $(1-\beta)$ fraction of the time. It builds directly on top of Flow-GRPO without modifying the flow-matching training dynamics.
+
+### Two-stage algorithm
+
+**Stage 1 — Compute dual variable.** After each sampling epoch, CFO computes the optimal Lagrange multiplier $\hat{\lambda}$ from the current batch of rollouts:
+
+$$\hat{\lambda} = \alpha \cdot \left[\log\frac{(1-\beta)\,\hat{A}}{\beta\,\hat{B}}\right]_+$$
+
+where $\hat{A}$ sums $\exp(r/\alpha)$ over *unsafe* samples and $\hat{B}$ sums over *safe* samples.
+
+**Stage 2 — Modified reward.** Each sample's reward is augmented before advantage computation:
+
+$$\tilde{r}(x_i) = r(x_i) + \hat{\lambda} \cdot \mathbf{1}[g(x_i) \le 0]$$
+
+Safe samples receive a bonus of $\hat{\lambda}$; unsafe samples are unchanged. The rest of the GRPO update is unmodified.
+
+### How to use
+
+| Parameter | Location | Effect |
+|---|---|---|
+| `CFO_BETA` | top of `scripts/train_sd3.py` | Violation tolerance $\beta$. Default `0.1` allows 10% unsafe samples. Lower values enforce stricter safety. |
+| `is_safe(x)` | `cfo/constraint.py` | Replace with your experiment's actual constraint. Default is a 2D triangle check (placeholder). |
+
+Run training the same way as standard Flow-GRPO — CFO activates automatically each epoch.
+
+### Files added
+
+```
+cfo/
+  __init__.py            # package init
+  compute_lambda.py      # Stage 1: dual variable computation
+  constraint.py          # feasible-region predicate is_safe(x)
+
+scripts/
+  visualize_constraint.py  # scatter-plot before/after CFO training
+
+docs/
+  main.tex                 # LaTeX writeup of the CFO algorithm
+  figures/.gitkeep         # placeholder for generated figures
+```
