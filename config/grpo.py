@@ -1,8 +1,17 @@
 import ml_collections
-import imp
+# import imp
 import os
 
-base = imp.load_source("base", os.path.join(os.path.dirname(__file__), "base.py"))
+# base = imp.load_source("base", os.path.join(os.path.dirname(__file__), "base.py"))
+import importlib.util
+
+# 获取 base.py 的绝对路径
+file_path = os.path.join(os.path.dirname(__file__), "base.py")
+
+# 使用 importlib 动态加载模块
+spec = importlib.util.spec_from_file_location("base", file_path)
+base = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(base)
 
 def compressibility():
     config = base.get_config()
@@ -451,7 +460,7 @@ def general_ocr_sd3_1gpu():
     config.sample.num_steps = 10
     config.sample.eval_num_steps = 40
     config.sample.guidance_scale = 4.5
-
+    config.sample.deterministic = True
     config.resolution = 512
     config.sample.train_batch_size = 8
     config.sample.num_image_per_prompt = 8
@@ -463,9 +472,11 @@ def general_ocr_sd3_1gpu():
     config.train.gradient_accumulation_steps = config.sample.num_batches_per_epoch//2
     config.train.num_inner_epochs = 1
     config.train.timestep_fraction = 0.99
+    config.train.cfg = False
     # kl loss
     config.train.beta = 0.04
     # Whether to use the std of all samples or the current group's.
+    config.sample.solver='dpm2'
     config.sample.global_std = True
     config.sample.same_latent = False
     config.train.ema = True
@@ -477,6 +488,132 @@ def general_ocr_sd3_1gpu():
     }
     
     config.prompt_fn = "general_ocr"
+
+    config.per_prompt_stat_tracking = True
+    return config
+
+def pickscore_sd3_1gpu():
+    gpu_number = 1
+    config = compressibility()
+    config.dataset = os.path.join(os.getcwd(), "dataset/pickscore_sfw")
+
+    # sd3.5 medium
+    config.pretrained.model = "stabilityai/stable-diffusion-3.5-medium"
+    config.sample.num_steps = 10
+    config.sample.eval_num_steps = 40
+    config.sample.guidance_scale = 4.5
+    config.sample.deterministic = True
+    config.resolution = 512
+    config.sample.train_batch_size = 8
+    config.sample.num_image_per_prompt = 8
+    config.sample.num_batches_per_epoch = int(8/(gpu_number*config.sample.train_batch_size/config.sample.num_image_per_prompt))
+    assert config.sample.num_batches_per_epoch % 2 == 0, "Please set config.sample.num_batches_per_epoch to an even number! This ensures that config.train.gradient_accumulation_steps = config.sample.num_batches_per_epoch / 2, so that gradients are updated twice per epoch."
+    config.sample.test_batch_size = 16 # 16 is a special design, the test set has a total of 1018, to make 8*16*n as close as possible to 1018, because when the number of samples cannot be divided evenly by the number of cards, multi-card will fill the last batch to ensure each card has the same number of samples, affecting gradient synchronization.
+
+    config.train.batch_size = config.sample.train_batch_size
+    config.train.gradient_accumulation_steps = config.sample.num_batches_per_epoch//2
+    config.train.num_inner_epochs = 1
+    config.train.timestep_fraction = 0.99
+    config.train.cfg = False
+    # kl loss
+    config.train.beta = 0.04
+    # Whether to use the std of all samples or the current group's.
+    config.sample.solver='dpm2'
+    config.sample.global_std = True
+    config.sample.same_latent = False
+    config.train.ema = True
+    config.save_freq = 60 # epoch
+    config.eval_freq = 60
+    config.save_dir = 'logs/pickscore/sd3.5-M'
+    config.reward_fn = {
+        "pickscore": 1.0,
+    }
+    
+    config.prompt_fn = "general_ocr"
+
+    config.per_prompt_stat_tracking = True
+    return config
+
+def seedscore_sd3_1gpu():
+    gpu_number = 1
+    config = compressibility()
+    config.dataset = os.path.join(os.getcwd(), "dataset/pickscore_sfw")
+
+    # sd3.5 medium
+    config.pretrained.model = "stabilityai/stable-diffusion-3.5-medium"
+    config.sample.num_steps = 10
+    config.sample.eval_num_steps = 40
+    config.sample.guidance_scale = 4.5
+    config.sample.deterministic = True
+    config.resolution = 512
+    config.sample.train_batch_size = 8
+    config.sample.num_image_per_prompt = 8
+    config.sample.num_batches_per_epoch = int(8/(gpu_number*config.sample.train_batch_size/config.sample.num_image_per_prompt))
+    assert config.sample.num_batches_per_epoch % 2 == 0, "Please set config.sample.num_batches_per_epoch to an even number! This ensures that config.train.gradient_accumulation_steps = config.sample.num_batches_per_epoch / 2, so that gradients are updated twice per epoch."
+    config.sample.test_batch_size = 16 # 16 is a special design, the test set has a total of 1018, to make 8*16*n as close as possible to 1018, because when the number of samples cannot be divided evenly by the number of cards, multi-card will fill the last batch to ensure each card has the same number of samples, affecting gradient synchronization.
+
+    config.train.batch_size = config.sample.train_batch_size
+    config.train.gradient_accumulation_steps = config.sample.num_batches_per_epoch//2
+    config.train.num_inner_epochs = 1
+    config.train.timestep_fraction = 0.99
+    config.train.cfg = False
+    # kl loss
+    config.train.beta = 0.04
+    # Whether to use the std of all samples or the current group's.
+    config.sample.solver='dpm2'
+    config.sample.global_std = True
+    config.sample.same_latent = False
+    config.train.ema = True
+    config.save_freq = 60 # epoch
+    config.eval_freq = 60
+    config.save_dir = 'logs/seedscore/sd3.5-M'
+    config.reward_fn = {
+        "seedscore": 1.0,
+    }
+    
+    config.prompt_fn = "general_ocr"
+
+    config.per_prompt_stat_tracking = True
+    return config
+
+def geneval_sd3_1gpu():
+    gpu_number = 1
+    config = compressibility()
+    config.dataset = os.path.join(os.getcwd(), "dataset/geneval")
+
+    # sd3.5 medium
+    config.pretrained.model = "stabilityai/stable-diffusion-3.5-medium"
+    config.sample.num_steps = 10
+    config.sample.eval_num_steps = 40
+    config.sample.guidance_scale = 4.5
+    config.sample.deterministic = True
+    config.resolution = 512
+    config.sample.train_batch_size = 8
+    config.sample.num_image_per_prompt = 8
+    config.sample.num_batches_per_epoch = int(8/(gpu_number*config.sample.train_batch_size/config.sample.num_image_per_prompt))
+    assert config.sample.num_batches_per_epoch % 2 == 0, "Please set config.sample.num_batches_per_epoch to an even number! This ensures that config.train.gradient_accumulation_steps = config.sample.num_batches_per_epoch / 2, so that gradients are updated twice per epoch."
+    config.sample.test_batch_size = 16 # 16 is a special design, the test set has a total of 1018, to make 8*16*n as close as possible to 1018, because when the number of samples cannot be divided evenly by the number of cards, multi-card will fill the last batch to ensure each card has the same number of samples, affecting gradient synchronization.
+
+    config.train.batch_size = config.sample.train_batch_size
+    config.train.gradient_accumulation_steps = config.sample.num_batches_per_epoch//2
+    config.train.num_inner_epochs = 1
+    config.train.timestep_fraction = 0.99
+    config.train.cfg = False
+    # kl loss
+    config.train.beta = 0.04
+    # Whether to use the std of all samples or the current group's.
+    config.sample.solver='dpm2'
+    config.sample.global_std = True
+    config.sample.same_latent = False
+    config.train.ema = True
+    config.save_freq = 60 # epoch
+    config.eval_freq = 60
+    config.save_dir = 'logs/geneval/sd3.5-M'
+    config.reward_fn = {
+        "geneval": 1.0,
+    }
+    
+    config.prompt_fn = "geneval"
 
     config.per_prompt_stat_tracking = True
     return config

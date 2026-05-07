@@ -124,6 +124,22 @@ def qwenvl_score(device):
 
     return _fn
 
+def seed_score(device):
+    from flow_grpo.seedvl import SeedScorer
+
+    scorer = SeedScorer(dtype=torch.bfloat16, device=device)
+
+    def _fn(images, prompts, metadata):
+        if isinstance(images, torch.Tensor):
+            images = (images * 255).round().clamp(0, 255).to(torch.uint8).cpu().numpy()
+            images = images.transpose(0, 2, 3, 1)  # NCHW -> NHWC
+            images = [Image.fromarray(image) for image in images]
+        # prompts = [prompt for prompt in prompts]
+        prompt = prompts[0]
+        scores = scorer(prompt, images)
+        return scores, {}
+
+    return _fn
     
 def ocr_score(device):
     from flow_grpo.ocr import OcrScorer
@@ -419,6 +435,7 @@ def multi_score(device, score_dict):
         "jpeg_compressibility": jpeg_compressibility,
         "unifiedreward": unifiedreward_score_sglang,
         "geneval": geneval_score,
+        "seedscore":seed_score,
         "clipscore": clip_score,
         "image_similarity": image_similarity_score,
     }

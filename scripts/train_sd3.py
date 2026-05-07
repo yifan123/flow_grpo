@@ -18,7 +18,7 @@ import flow_grpo.prompts
 import flow_grpo.rewards
 from flow_grpo.stat_tracking import PerPromptStatTracker
 from flow_grpo.diffusers_patch.sd3_pipeline_with_logprob import pipeline_with_logprob
-from flow_grpo.diffusers_patch.sd3_sde_with_logprob import sde_step_with_logprob
+from flow_grpo.diffusers_patch.sd3_sde_with_logprob import sde_step_with_logprob, ode_step_with_logprob
 from flow_grpo.diffusers_patch.train_dreambooth_lora_sd3 import encode_prompt
 import torch
 import wandb
@@ -38,6 +38,34 @@ FLAGS = flags.FLAGS
 config_flags.DEFINE_config_file("config", "config/base.py", "Training configuration.")
 
 logger = get_logger(__name__)
+
+def nano_banana(prompt):
+    from google import genai
+    from google.genai import types
+    import os
+    
+    client = genai.Client(api_key=os.getenv("GOOGLE_API_KEY"))
+
+    resolution = "1K" 
+    aspect_ratio = "1:1"
+    prompt = (prompt)
+    response = client.models.generate_content(
+        # model="gemini-3-pro-image-preview",
+        model="gemini-3.1-flash-image-preview",
+        contents=[prompt],
+        config=types.GenerateContentConfig(
+            response_modalities=['TEXT', 'IMAGE'],
+            image_config=types.ImageConfig(
+                aspect_ratio=aspect_ratio,
+                image_size=resolution
+            ),
+        )
+    )
+    if response.parts:
+        for part in response.parts:
+            if part.inline_data is not None:
+                image = part.as_image()
+                return image._pil_image.resize((512,512))
 
 class TextPromptDataset(Dataset):
     def __init__(self, dataset, split='train'):
@@ -203,8 +231,9 @@ def compute_log_prob(transformer, pipeline, sample, j, embeds, pooled_embeds, co
         )[0]
     
     # compute the log prob of next_latents given latents under the current model
-    prev_sample, log_prob, prev_sample_mean, std_dev_t = sde_step_with_logprob(
+    prev_sample, log_prob, prev_sample_mean, std_dev_t = ode_step_with_logprob(
         pipeline.scheduler,
+        noise_pred.float(),
         noise_pred.float(),
         sample["timesteps"][:, j],
         sample["latents"][:, j].float(),
@@ -251,7 +280,7 @@ def eval(pipeline, test_dataloader, text_encoders, tokenizers, config, accelerat
                     negative_prompt_embeds=sample_neg_prompt_embeds,
                     negative_pooled_prompt_embeds=sample_neg_pooled_prompt_embeds,
                     num_inference_steps=config.sample.eval_num_steps,
-                    guidance_scale=config.sample.guidance_scale,
+                    guidance_scale=1.0,
                     output_type="pt",
                     height=config.resolution,
                     width=config.resolution, 
@@ -600,7 +629,7 @@ def main(_):
     while True:
         #################### EVAL ####################
         pipeline.transformer.eval()
-        if epoch % config.eval_freq == 0:
+        if epoch % config.eval_freq == 0 and config.debug == False:
             eval(pipeline, test_dataloader, text_encoders, tokenizers, config, accelerator, global_step, eval_reward_fn, executor, autocast, num_train_timesteps, ema, transformer_trainable_parameters)
         if epoch % config.save_freq == 0 and epoch > 0 and accelerator.is_main_process:
             save_ckpt(config.save_dir, transformer, global_step, accelerator, ema, transformer_trainable_parameters, config)
@@ -640,6 +669,14 @@ def main(_):
                 generator = None
             with autocast():
                 with torch.no_grad():
+                    # --- 在 while True 循环开始处，SAMPLING 逻辑之前 ---
+                    start_cfg = config.sample.guidance_scale  # 初始值 4.5
+                    end_cfg = 1.0  # 目标值，CFG=1.0
+                    anneal_steps = 80  # 你设定的 10 轮退火周期
+
+                    # 计算当前 Epoch 的 CFG (线性退火)
+                    # 随着 epoch 增加，CFG 逐渐从 4.5 降至 1.0，10轮后固定为 1.0
+                    current_cfg = max(end_cfg, start_cfg - (start_cfg - end_cfg) * (global_step / anneal_steps))
                     images, latents, log_probs = pipeline_with_logprob(
                         pipeline,
                         prompt_embeds=prompt_embeds,
@@ -651,14 +688,37 @@ def main(_):
                         output_type="pt",
                         height=config.resolution,
                         width=config.resolution, 
-                        noise_level=config.sample.noise_level,
+                        noise_level=current_cfg,
+                        solver=config.sample.solver,
+                        deterministic=config.sample.deterministic,
                         generator=generator
-                )
+                    )
+                    try:
+                        real_pil_image = nano_banana(prompts[0])
+
+                        if real_pil_image:
+
+                            real_image_pt = pipeline.image_processor.preprocess(real_pil_image).to('cuda')
+
+                            images[-1] = (real_image_pt + 1) * 0.5
+                            
+                            real_latent_pt = pipeline.vae.encode(real_image_pt).latent_dist.sample()
+
+                            real_latent_pt = (real_latent_pt - pipeline.vae.config.shift_factor) * pipeline.vae.config.scaling_factor
+
+                            for i,sigma in enumerate(pipeline.scheduler.sigmas):
+                                
+                                latents[i][-1] = latents[0][-1] * sigma + real_latent_pt * (1 - sigma)
+                        else:
+
+                            print("Error in API")
+                    except:
+                        print("Error in API")
 
             latents = torch.stack(
                 latents, dim=1
             )  # (batch_size, num_steps + 1, 16, 96, 96)
-            log_probs = torch.stack(log_probs, dim=1)  # shape after stack (batch_size, num_steps)
+            # log_probs = torch.stack(log_probs, dim=1)  # shape after stack (batch_size, num_steps)
 
             timesteps = pipeline.scheduler.timesteps.repeat(
                 config.sample.train_batch_size, 1
@@ -681,7 +741,7 @@ def main(_):
                     "next_latents": latents[
                         :, 1:
                     ],  # each entry is the latent after timestep t
-                    "log_probs": log_probs,
+                    # "log_probs": log_probs,
                     "rewards": rewards,
                 }
             )
@@ -711,7 +771,7 @@ def main(_):
             for k in samples[0].keys()
         }
 
-        if epoch % 10 == 0 and accelerator.is_main_process:
+        if epoch % 1 == 0 and accelerator.is_main_process:
             # this is a hack to force wandb to log the images as JPEGs instead of PNGs
             with tempfile.TemporaryDirectory() as tmpdir:
                 num_samples = min(15, len(images))
@@ -767,7 +827,8 @@ def main(_):
             if accelerator.is_local_main_process:
                 print("len(prompts)", len(prompts))
                 print("len unique prompts", len(set(prompts)))
-
+                if len(set(prompts)) == 0:
+                    continue
             group_size, trained_prompt_num = stat_tracker.get_stats()
 
             zero_std_ratio, reward_std_mean = calculate_zero_std_ratio(prompts, gathered_rewards)
@@ -880,7 +941,7 @@ def main(_):
                             if config.train.beta > 0:
                                 with torch.no_grad():
                                     with transformer.module.disable_adapter():
-                                        _, _, prev_sample_mean_ref, _ = compute_log_prob(transformer, pipeline, sample, j, embeds, pooled_embeds, config)
+                                        _, old_log_prob, prev_sample_mean_ref, _ = compute_log_prob(transformer, pipeline, sample, j, embeds, pooled_embeds, config)
 
                         # grpo logic
                         advantages = torch.clamp(
@@ -888,7 +949,8 @@ def main(_):
                             -config.train.adv_clip_max,
                             config.train.adv_clip_max,
                         )
-                        ratio = torch.exp(log_prob - sample["log_probs"][:, j])
+                        # ratio = torch.exp(log_prob - sample["log_probs"][:, j])
+                        ratio = torch.exp(log_prob - old_log_prob)
                         unclipped_loss = -advantages * ratio
                         clipped_loss = -advantages * torch.clamp(
                             ratio,
@@ -905,7 +967,7 @@ def main(_):
 
                         info["approx_kl"].append(
                             0.5
-                            * torch.mean((log_prob - sample["log_probs"][:, j]) ** 2)
+                            * torch.mean((log_prob - old_log_prob) ** 2)
                         )
                         info["clipfrac"].append(
                             torch.mean(

@@ -7,7 +7,7 @@ def get_config():
     ###### General ######
     # run name for wandb logging and checkpoint saving -- if not provided, will be auto-generated based on the datetime.
     config.run_name = ""
-    config.debug = False
+    config.debug = True
     config.num_epochs = 100000
     config.resume_from = None
     # random seed for reproducibility.
