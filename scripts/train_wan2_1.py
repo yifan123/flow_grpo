@@ -588,7 +588,7 @@ def main(_):
     # autocast = accelerator.autocast
 
     # Prepare everything with our `accelerator`.
-    transformer, optimizer, train_dataloader, test_dataloader = accelerator.prepare(transformer, optimizer, train_dataloader, test_dataloader)
+    transformer, optimizer, test_dataloader = accelerator.prepare(transformer, optimizer, test_dataloader)
 
     # executor to perform callbacks asynchronously. this is beneficial for the llava callbacks which makes a request to a
     # remote server running llava inference.
@@ -633,7 +633,6 @@ def main(_):
     else:
         first_epoch = 0
     global_step = 0
-    train_iter = iter(train_dataloader)
 
     for epoch in range(first_epoch, config.num_epochs):
         #################### SAMPLING ####################
@@ -647,6 +646,7 @@ def main(_):
             position=0,
         ):
             train_sampler.set_epoch(epoch * config.sample.num_batches_per_epoch + i)
+            train_iter = iter(train_dataloader) # 每次重新创建iter，防止dataloader预加载未来的batch导致每一epoch的group_size不一致。
             prompts, prompt_metadata = next(train_iter)
 
             prompt_embeds = compute_text_embeddings(
@@ -668,8 +668,9 @@ def main(_):
             if i==0 and epoch % config.save_freq == 0 and epoch>0 and accelerator.is_main_process:
                 save_ckpt(config.save_dir, transformer, global_step, accelerator, ema, transformer_trainable_parameters, config)
             # 这里是故意的，因为前两个epoch收集的group size会有bug,经过两个epoch后，group_size稳定成指定的
-            if epoch < 2:
-                continue
+            # BowenPing: 我猜这里的bug应该就是Issue 106所提到的。经过修改之后应该没问题了。这里就comment掉了
+            # if epoch < 2:
+                # continue
             # sample
             for j in tqdm(
                 range(config.sample.sample_time_per_prompt),
@@ -728,8 +729,8 @@ def main(_):
                     }
                 )
 
-        if epoch < 2:
-            continue
+        # if epoch < 2:
+        #     continue
         # wait for all rewards to be computed
         for sample in tqdm(
             samples,
