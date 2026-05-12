@@ -986,8 +986,8 @@ def main(_):
                             accelerator.clip_grad_norm_(
                                 transformer.parameters(), config.train.max_grad_norm
                             )
-                        optimizer.step()
-                        optimizer.zero_grad()
+                            optimizer.step()
+                            optimizer.zero_grad()
 
                     # Checks if the accelerator has performed an optimization step behind the scenes
                     if accelerator.sync_gradients:
